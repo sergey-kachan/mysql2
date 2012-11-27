@@ -53,9 +53,9 @@ static VALUE opt_decimal_zero, opt_float_zero, opt_time_year, opt_time_month, op
 extern VALUE mMysql2, cMysql2Client, cMysql2Error;
 static VALUE intern_encoding_from_charset;
 static ID intern_new, intern_utc, intern_local, intern_encoding_from_charset_code,
-          intern_localtime, intern_local_offset, intern_civil, intern_new_offset;
+          intern_localtime, intern_local_offset, intern_civil, intern_new_offset, intern_in_time_zone;
 static VALUE sym_symbolize_keys, sym_as, sym_array, sym_database_timezone, sym_application_timezone,
-          sym_local, sym_utc, sym_cast_booleans, sym_cache_rows, sym_cast;
+          sym_local, sym_utc, sym_cast_booleans, sym_cache_rows, sym_cast, sym_time_with_zone;
 static ID intern_merge;
 
 static void rb_mysql_result_mark(void * wrapper) {
@@ -163,7 +163,7 @@ static VALUE mysql2_set_field_string_encoding(VALUE val, MYSQL_FIELD field, rb_e
 #endif
 
 
-static VALUE rb_mysql_result_fetch_row(VALUE self, ID db_timezone, ID app_timezone, int symbolizeKeys, int asArray, int castBool, int cast) {
+static VALUE rb_mysql_result_fetch_row(VALUE self, ID db_timezone, ID app_timezone, int timeWithZone, int symbolizeKeys, int asArray, int castBool, int cast) {
   VALUE rowVal;
   mysql2_result_wrapper * wrapper;
   MYSQL_ROW row;
@@ -265,6 +265,9 @@ static VALUE rb_mysql_result_fetch_row(VALUE self, ID db_timezone, ID app_timezo
               val = rb_funcall(val, intern_utc, 0);
             }
           }
+          if (timeWithZone) {
+            val = rb_funcall(val, intern_in_time_zone, 0);
+          }
           break;
         }
         case MYSQL_TYPE_TIMESTAMP:  // TIMESTAMP field
@@ -305,6 +308,10 @@ static VALUE rb_mysql_result_fetch_row(VALUE self, ID db_timezone, ID app_timezo
                     val = rb_funcall(val, intern_utc, 0);
                   }
                 }
+              }
+
+              if (timeWithZone) {
+                val = rb_funcall(val, intern_in_time_zone, 0);
               }
             }
           }
@@ -392,7 +399,7 @@ static VALUE rb_mysql_result_each(int argc, VALUE * argv, VALUE self) {
   ID db_timezone, app_timezone, dbTz, appTz;
   mysql2_result_wrapper * wrapper;
   unsigned long i;
-  int symbolizeKeys = 0, asArray = 0, castBool = 0, cacheRows = 1, cast = 1;
+  int symbolizeKeys = 0, asArray = 0, castBool = 0, cacheRows = 1, cast = 1, timeWithZone = 0;
 
   GetMysql2Result(self, wrapper);
 
@@ -444,6 +451,10 @@ static VALUE rb_mysql_result_each(int argc, VALUE * argv, VALUE self) {
     app_timezone = Qnil;
   }
 
+  if(rb_hash_aref(opts, sym_time_with_zone) == Qtrue) {
+    timeWithZone = 1;
+  }
+
   if (wrapper->lastRowProcessed == 0) {
     wrapper->numberOfRows = mysql_num_rows(wrapper->result);
     if (wrapper->numberOfRows == 0) {
@@ -467,7 +478,7 @@ static VALUE rb_mysql_result_each(int argc, VALUE * argv, VALUE self) {
       if (cacheRows && i < rowsProcessed) {
         row = rb_ary_entry(wrapper->rows, i);
       } else {
-        row = rb_mysql_result_fetch_row(self, db_timezone, app_timezone, symbolizeKeys, asArray, castBool, cast);
+        row = rb_mysql_result_fetch_row(self, db_timezone, app_timezone, timeWithZone, symbolizeKeys, asArray, castBool, cast);
         if (cacheRows) {
           rb_ary_store(wrapper->rows, i, row);
         }
@@ -540,6 +551,7 @@ void init_mysql2_result() {
   intern_local_offset = rb_intern("local_offset");
   intern_civil        = rb_intern("civil");
   intern_new_offset   = rb_intern("new_offset");
+  intern_in_time_zone = rb_intern("in_time_zone");
 
   sym_symbolize_keys  = ID2SYM(rb_intern("symbolize_keys"));
   sym_as              = ID2SYM(rb_intern("as"));
@@ -551,6 +563,7 @@ void init_mysql2_result() {
   sym_application_timezone  = ID2SYM(rb_intern("application_timezone"));
   sym_cache_rows     = ID2SYM(rb_intern("cache_rows"));
   sym_cast           = ID2SYM(rb_intern("cast"));
+  sym_time_with_zone = ID2SYM(rb_intern("time_with_zone"));
 
   opt_decimal_zero = rb_str_new2("0.0");
   rb_global_variable(&opt_decimal_zero); //never GC
